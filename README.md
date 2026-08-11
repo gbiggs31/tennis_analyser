@@ -1,6 +1,20 @@
 # tennis_analyser
 
-Turns long tennis videos into a queryable database of individual **points** and **shots**.
+Turns long tennis videos into a folder of **labelled clips of your shots**.
+
+```sh
+uv run tennis ingest  "path/to/match.mp4"   # audio + analysis proxy
+uv run tennis hits    <session>             # find ball contacts in the audio
+uv run tennis segment <session>             # group them into points
+uv run tennis sheets  <session>             # one contact sheet per shot
+uv run tennis label   <session> test        # check the prompt on a few (cheap)
+uv run tennis label   <session> submit      # then the whole session, batched
+uv run tennis label   <session> collect
+uv run tennis shots   <session> --dry-run   # what would be exported
+uv run tennis shots   <session>             # clips, one folder per stroke
+```
+
+Everything except `label` runs locally and free.
 
 Shot from a fixed camera behind the baseline, a 1080p/120fps match recording is far too
 large to hand to a vision model directly. This pipeline segments it locally, then sends
