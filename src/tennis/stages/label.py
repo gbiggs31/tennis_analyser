@@ -60,6 +60,14 @@ The candidate was detected from sound alone, so it is often NOT a racket strike.
 It may be the ball bouncing on the court, the ball clipping the net, or nothing \
 identifiable.
 
+Decide in this order:
+1. Is either player swinging a racket at the ball in these frames? If yes, this \
+is a "strike" - even if the ball also bounces somewhere in the sequence. A \
+visible swing always outranks a bounce.
+2. If nobody is swinging, is the ball visibly hitting the court or the net? Then \
+"bounce" or "net_cord".
+3. Otherwise "nothing".
+
 How to judge:
 - Compare the frames to each other. A strike is visible as CHANGE across the \
 sequence: the racket travels back, then forward through the ball, then follows \
