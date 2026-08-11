@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+
+# Data — raw video and derived artifacts live outside the repo (see config.py).
+# These entries are a safety net in case anything lands here by accident.
+data/
+*.mov
+*.mp4
+*.wav
+*.jpg
+*.png
+!docs/**/*.png
+
+# Local databases
+*.db
+*.db-journal
+
+# Secrets
+.env

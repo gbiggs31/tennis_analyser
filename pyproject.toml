@@ -1,0 +1,35 @@
+[project]
+name = "tennis-analyser"
+version = "0.1.0"
+description = "Segment tennis footage into points and shots, label them, and query the result"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "soundfile>=0.12",
+    "typer>=0.15",
+    "rich>=13.9",
+    "pydantic>=2.9",
+    "pillow>=11.0",
+    "opencv-python>=4.10",
+    "matplotlib>=3.9",
+]
+
+[project.optional-dependencies]
+pose = ["mediapipe>=0.10.14"]
+label = ["anthropic>=0.69"]
+ui = ["streamlit>=1.40"]
+
+[project.scripts]
+tennis = "tennis.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tennis"]
+
+[tool.ruff]
+line-length = 100
