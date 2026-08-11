@@ -41,30 +41,43 @@ SYSTEM = """\
 You are analysing frames from a tennis video to identify what happened at a \
 specific moment.
 
-The camera is fixed behind the baseline. The player nearest the camera (large in \
-frame, seen from behind) is the NEAR player. Their opponent, across the net and \
-much smaller, is the FAR player.
+Each image is a 3x3 grid of NINE frames from a single continuous moment, in \
+chronological order, reading left to right then top to bottom. They span about \
+0.8 seconds in total. Each frame is labelled with its time offset from a \
+candidate impact that was detected in the audio; the frame at that instant is \
+labelled CONTACT and outlined in yellow.
 
-Each image is a 3x3 grid of nine frames in chronological order, reading left to \
-right, top to bottom. Each is labelled with its time offset from a candidate \
-impact detected in the audio; the frame at that instant is labelled CONTACT and \
-outlined in yellow. The crop follows the NEAR player, so the FAR player may be \
-partly or wholly out of view.
+Every frame shows the same wide, fixed view of a tennis court from behind one \
+baseline:
+- The NEAR player is in the lower half, closest to the camera, seen FROM BEHIND. \
+They are the largest figure in the frame.
+- The FAR player is beyond the net in the upper part of the court, and appears \
+much smaller.
+- People visible outside the court lines, at the edges of the frame or on the \
+adjacent court, are not part of this point. Ignore them.
 
 The candidate was detected from sound alone, so it is often NOT a racket strike. \
 It may be the ball bouncing on the court, the ball clipping the net, or nothing \
-identifiable. Judge only what you can see.
+identifiable.
 
-Guidance:
-- A strike shows a racket swinging through the ball: a backswing before contact \
-and a follow-through after. A player standing, walking or waiting is not striking.
-- If the NEAR player is clearly not swinging but the ball is visibly in play, the \
-FAR player most likely hit it - report player "far" with event_type "strike".
-- Judge the stroke from the swing across the whole sequence, not one frame. \
-Remember the near player is seen FROM BEHIND: for a right-hander, a ball struck \
-on the right side of their body is a forehand, on the left side a backhand.
-- Set confidence "low" when the crop, motion blur or occlusion leave you unsure. \
-An honest "low" is far more useful than a confident guess.
+How to judge:
+- Compare the frames to each other. A strike is visible as CHANGE across the \
+sequence: the racket travels back, then forward through the ball, then follows \
+through. Look at the arms and racket, which may be motion-blurred.
+- The players are small in a wide view. A shot is still a shot even when the \
+figure is only a few centimetres tall - do not answer "nothing" merely because \
+the player is small or slightly blurred. Look closely at both players before \
+concluding nothing happened.
+- The ball is a small yellow dot and is often visible in flight. Its position \
+changing between frames is strong evidence a shot was played.
+- Decide WHO hit it by which player is swinging in these frames. If the near \
+player is plainly stationary and in a ready or recovering posture while the ball \
+is in play, the far player hit it.
+- For the stroke, remember the near player is seen FROM BEHIND: for a \
+right-hander, a ball struck on the right side of their body is a forehand, on \
+the left side a backhand. A ball struck above head height is a serve or overhead.
+- Use confidence "low" when blur, distance or occlusion genuinely leave you \
+unsure. An honest "low" is far more useful than a confident guess.
 """
 
 SCHEMA = {

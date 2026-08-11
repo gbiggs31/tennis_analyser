@@ -12,6 +12,19 @@ the model discard the ones that are not shots.
 Frames are sampled unevenly, densest around contact, because that is where the
 information is: the racket moves further in the 50ms around impact than in the
 half-second of preparation before it.
+
+**Tiles show the whole court, not a crop of one player.** Cropping was tried
+first, on the reasoning that the far player is only ~30 proxy pixels tall and
+would be illegible otherwise. It went badly. Locating a player needs background
+subtraction, which needs a background that tracks the changing evening light,
+and even once that was fixed the detector found a person-shaped blob in only 15%
+of frames - so most sheets fell back to an uncropped view regardless.
+
+Dropping the top third of the frame (sky, trees, houses) instead costs *fewer*
+tokens than the cropped version, because it removes the letterbox padding a
+portrait crop needed. It also cannot fail, shows both players so the model can
+attribute the shot, and keeps the court visible so a ball bounce is
+recognisable. The player-crop path is retained as an option but is not default.
 """
 
 from __future__ import annotations
@@ -31,15 +44,38 @@ from .segment import load as load_points
 # Offsets from contact, in seconds. Dense near zero, sparse in the wind-up.
 FRAME_OFFSETS = (-0.50, -0.33, -0.20, -0.10, -0.04, 0.0, 0.05, 0.13, 0.28)
 
-# Portrait tiles: a player's bounding box is roughly 1:3, so landscape tiles
-# letterbox away most of their pixels - and pixels are tokens.
-TILE_W, TILE_H = 260, 364
+# Six frames instead of nine for the strip layout: the swing is still legible,
+# and the tokens freed go into making each frame bigger. Player size turned out
+# to matter far more than frame count - a nine-frame wide view scored 0/12 on
+# shots a six-frame close view gets right.
+STRIP_OFFSETS = (-0.33, -0.15, -0.05, 0.0, 0.08, 0.22)
+
+# Fixed region holding both players and no sky, as fractions of the frame.
+# Fixed rather than detected: locating the player by background subtraction
+# failed on long sessions (changing light) and then found a person in only 15%
+# of frames once fixed. A constant crop cannot fail.
+STRIP_BOX = (0.06, 0.52, 0.94, 1.00)
+
+# Frames used to locate the player. Spread around contact so one bad frame
+# (occlusion, a shadow) cannot decide the crop on its own.
+LOCATE_OFFSETS = (-0.20, -0.04, 0.13)
+
 GRID_COLS, GRID_ROWS = 3, 3
 LABEL_H = 18
 
-# Widen the crop more than it is heightened, so the tile keeps some court either
-# side of the player (where the ball is) without adding empty sky above them.
-CROP_ASPECT = TILE_W / TILE_H
+# Everything above this fraction of frame height is sky, trees, houses and the
+# adjacent courts. Dropping it is free information-wise and makes both players
+# proportionally larger in the tile.
+COURT_TOP = 0.28
+
+# Sized so the finished sheet is just under the 1568px long edge that images are
+# downscaled to - going wider would be re-encoded away, not shown to the model.
+TILE_W = 522
+COURT_TILE_H = 211          # 1920x778 court crop, scaled to width
+STRIP_COLS, STRIP_ROWS = 2, 3
+STRIP_TILE_W, STRIP_TILE_H = 783, 258
+PLAYER_TILE_W, PLAYER_TILE_H = 260, 364
+CROP_ASPECT = PLAYER_TILE_W / PLAYER_TILE_H
 
 
 @dataclass
@@ -59,8 +95,6 @@ def _crop_for(
     """Crop the original-resolution frame around a proxy-space box."""
     H, W = frame.shape[:2]
     if box is None:
-        # No player located: fall back to the court region so the tile still
-        # shows whether a ball is in play.
         return frame[int(H * 0.35) :, :]
     scaled = box.to_scale(scale_to_original).scaled(factor, (W, H))
 
@@ -96,16 +130,37 @@ def build(
     which: Player = Player.NEAR,
     limit: int | None = None,
     quality: int = 82,
+    crop: str = "court",
 ) -> list[SheetResult]:
-    """Render a contact sheet for every shot in points.json."""
+    """Render a contact sheet for every shot in points.json.
+
+    `crop="court"` (default) keeps the whole court minus the sky: robust, shows
+    both players, and cheaper than the alternative. `crop="player"` zooms on one
+    player via background subtraction, which is tighter when it works but often
+    does not - see the module docstring.
+    """
     paths = SessionPaths(session_id)
     probe = load_probe(session_id)
     source = Path(probe.path)
     if not source.exists():
         raise FileNotFoundError(f"Source video missing: {source}")
 
-    background = players.load_or_build_background(session_id)
-    proxy_h, proxy_w = background.shape
+    if crop == "strip":
+        tile_w, tile_h = STRIP_TILE_W, STRIP_TILE_H
+        offsets, cols, rows = STRIP_OFFSETS, STRIP_COLS, STRIP_ROWS
+    elif crop == "court":
+        tile_w, tile_h = TILE_W, COURT_TILE_H
+        offsets, cols, rows = FRAME_OFFSETS, GRID_COLS, GRID_ROWS
+    else:
+        tile_w, tile_h = PLAYER_TILE_W, PLAYER_TILE_H
+        offsets, cols, rows = FRAME_OFFSETS, GRID_COLS, GRID_ROWS
+
+    background = None
+    proxy_w = probe.proxy_width or config.PROXY_WIDTH
+    proxy_h = probe.proxy_height or config.PROXY_HEIGHT
+    if crop == "player":
+        background = players.load_or_build_background(session_id)
+        proxy_h, proxy_w = background.shape
     scale_to_original = probe.width / proxy_w
 
     work = [(p.index, s) for p in load_points(session_id).points for s in p.shots]
@@ -125,30 +180,45 @@ def build(
             tiles: list[np.ndarray] = []
             located = False
 
-            # Locate the player once, at contact, and reuse that crop for every
-            # frame. Re-finding per frame would make the crop jitter, which
-            # reads as camera shake and obscures the swing.
-            cap_proxy.set(cv2.CAP_PROP_POS_MSEC, shot.t_contact * 1000.0)
-            ok_p, proxy_frame = cap_proxy.read()
             box = None
-            if ok_p:
-                box = players.find(
-                    cv2.cvtColor(proxy_frame, cv2.COLOR_BGR2GRAY), background, which
-                )
+            if crop == "player":
+                # Locate across a few frames and take the median box, then reuse
+                # it for every tile. Re-finding per frame makes the crop jitter,
+                # which reads as camera shake and obscures the swing.
+                probe_frames: list[tuple[float, np.ndarray]] = []
+                for offset in LOCATE_OFFSETS:
+                    t = max(0.0, shot.t_contact + offset)
+                    cap_proxy.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+                    ok_p, proxy_frame = cap_proxy.read()
+                    if ok_p:
+                        probe_frames.append(
+                            (t, cv2.cvtColor(proxy_frame, cv2.COLOR_BGR2GRAY))
+                        )
+                box, _ = players.find_stable(probe_frames, background, which)
                 located = box is not None
+                if box is None:
+                    box = players.fallback_box(which, proxy_w, proxy_h)
 
-            for offset in FRAME_OFFSETS:
+            for offset in offsets:
                 t = max(0.0, shot.t_contact + offset)
                 cap_src.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
                 ok_s, frame = cap_src.read()
                 if not ok_s:
-                    tiles.append(np.zeros((TILE_H, TILE_W, 3), dtype=np.uint8))
+                    tiles.append(np.zeros((tile_h, tile_w, 3), dtype=np.uint8))
                     continue
-                tile = _fit(_crop_for(frame, box, scale_to_original), TILE_W, TILE_H)
+                H, W = frame.shape[:2]
+                if crop == "strip":
+                    x0, y0, x1, y1 = STRIP_BOX
+                    region = frame[int(H * y0) : int(H * y1), int(W * x0) : int(W * x1)]
+                elif crop == "court":
+                    region = frame[int(H * COURT_TOP) :, :]
+                else:
+                    region = _crop_for(frame, box, scale_to_original)
+                tile = _fit(region, tile_w, tile_h)
                 _annotate(tile, offset)
                 tiles.append(tile)
 
-            sheet = _compose(tiles)
+            sheet = _compose(tiles, cols, rows)
             name = (
                 f"p{point_index:03d}_s{shot.index_in_point:02d}"
                 f"_t{shot.t_contact:08.2f}.jpg"
@@ -170,11 +240,12 @@ def _annotate(tile: np.ndarray, offset: float) -> None:
         cv2.rectangle(tile, (0, 0), (tile.shape[1] - 1, tile.shape[0] - 1), (0, 215, 255), 2)
 
 
-def _compose(tiles: list[np.ndarray]) -> np.ndarray:
-    rows = []
-    for r in range(GRID_ROWS):
-        row = tiles[r * GRID_COLS : (r + 1) * GRID_COLS]
-        while len(row) < GRID_COLS:
-            row.append(np.zeros((TILE_H, TILE_W, 3), dtype=np.uint8))
-        rows.append(np.hstack(row))
-    return np.vstack(rows)
+def _compose(tiles: list[np.ndarray], cols: int, rows: int) -> np.ndarray:
+    h, w = tiles[0].shape[:2]
+    out = []
+    for r in range(rows):
+        row = tiles[r * cols : (r + 1) * cols]
+        while len(row) < cols:
+            row.append(np.zeros((h, w, 3), dtype=np.uint8))
+        out.append(np.hstack(row))
+    return np.vstack(out)

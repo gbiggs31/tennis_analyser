@@ -359,26 +359,31 @@ def sheets(
     far: Annotated[
         bool, typer.Option("--far", help="Crop to the far player instead of the near one.")
     ] = False,
+    crop: Annotated[
+        str,
+        typer.Option("--crop", help="court (whole court, robust) or player (zoomed)."),
+    ] = "court",
 ) -> None:
     """Stage 4: build one contact sheet per shot, for the labelling model."""
     from .stages import sheets as stage
 
     with console.status("Building contact sheets ..."):
         results = stage.build(
-            session, which=Player.FAR if far else Player.NEAR, limit=limit
+            session, which=Player.FAR if far else Player.NEAR, limit=limit, crop=crop
         )
 
     if not results:
         console.print("[yellow]No shots.[/] Run `tennis segment` first.")
         return
 
-    located = sum(1 for r in results if r.player_located)
     total_bytes = sum(r.path.stat().st_size for r in results)
-    console.print(f"{len(results)} sheets  ({_fmt_bytes(total_bytes)} total)")
-    console.print(
-        f"player located in {located}/{len(results)} "
-        f"({located / len(results) * 100:.0f}%); the rest fall back to a court-wide crop"
-    )
+    console.print(f"{len(results)} sheets  ({_fmt_bytes(total_bytes)} total, crop={crop})")
+    if crop == "player":
+        located = sum(1 for r in results if r.player_located)
+        console.print(
+            f"player located in {located}/{len(results)} "
+            f"({located / len(results) * 100:.0f}%); the rest fall back to a fixed box"
+        )
     console.print(f"folder  {results[0].path.parent}")
 
 
