@@ -152,24 +152,43 @@ def _params(sheet: Path, shot_index: int, is_serve: bool) -> dict:
     }
 
 
-def _sheet_index(session_id: str) -> list[tuple[str, Path, int, bool]]:
+@dataclass
+class Item:
+    custom_id: str
+    sheet: Path
+    point_index: int
+    shot_index: int
+    is_serve: bool
+
+
+def _sheet_index(session_id: str) -> list[Item]:
     """Pair every contact sheet with the shot it came from.
 
-    Sheets are named p{point}_s{shot}_t{time}.jpg, which is also the custom_id -
-    batch results come back in arbitrary order and must be keyed, never zipped.
+    `custom_id` is how batch results are matched back: they return in arbitrary
+    order and must be keyed, never zipped. The API constrains it to
+    ^[a-zA-Z0-9_-]{1,64}$, so it cannot carry the timestamp in the sheet's
+    filename - point and shot index already identify a shot uniquely.
     """
     from .segment import load as load_points
 
     paths = SessionPaths(session_id)
     by_name = {p.stem: p for p in sorted(paths.sheets.glob("*.jpg"))}
 
-    work: list[tuple[str, Path, int, bool]] = []
+    work: list[Item] = []
     for point in load_points(session_id).points:
         for shot in point.shots:
             stem = f"p{point.index:03d}_s{shot.index_in_point:02d}_t{shot.t_contact:08.2f}"
             sheet = by_name.get(stem)
             if sheet is not None:
-                work.append((stem, sheet, shot.index_in_point, shot.is_serve))
+                work.append(
+                    Item(
+                        custom_id=f"p{point.index:03d}_s{shot.index_in_point:02d}",
+                        sheet=sheet,
+                        point_index=point.index,
+                        shot_index=shot.index_in_point,
+                        is_serve=shot.is_serve,
+                    )
+                )
     return work
 
 
@@ -181,10 +200,12 @@ def label_sync(session_id: str, limit: int = 8) -> list[Labelled]:
     before committing to a batch that takes up to an hour."""
     client = _client()
     out: list[Labelled] = []
-    for stem, sheet, shot_index, is_serve in _sheet_index(session_id)[:limit]:
-        response = client.messages.create(**_params(sheet, shot_index, is_serve))
+    for item in _sheet_index(session_id)[:limit]:
+        response = client.messages.create(
+            **_params(item.sheet, item.shot_index, item.is_serve)
+        )
         text = next((b.text for b in response.content if b.type == "text"), "{}")
-        out.append(Labelled(stem, sheet, json.loads(text)))
+        out.append(Labelled(item.custom_id, item.sheet, json.loads(text)))
     return out
 
 
@@ -209,8 +230,8 @@ def submit(session_id: str, limit: int | None = None) -> list[str]:
 
     chunks: list[list] = [[]]
     size = 0
-    for stem, sheet, shot_index, is_serve in work:
-        params = _params(sheet, shot_index, is_serve)
+    for item in work:
+        params = _params(item.sheet, item.shot_index, item.is_serve)
         approx = len(params["messages"][0]["content"][0]["source"]["data"])
         if chunks[-1] and (
             len(chunks[-1]) >= MAX_REQUESTS_PER_BATCH or size + approx > MAX_BATCH_BYTES
@@ -218,7 +239,10 @@ def submit(session_id: str, limit: int | None = None) -> list[str]:
             chunks.append([])
             size = 0
         chunks[-1].append(
-            Request(custom_id=stem, params=MessageCreateParamsNonStreaming(**params))
+            Request(
+                custom_id=item.custom_id,
+                params=MessageCreateParamsNonStreaming(**params),
+            )
         )
         size += approx
 
