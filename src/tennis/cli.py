@@ -383,6 +383,70 @@ def sheets(
 
 
 @app.command()
+def label(
+    session: Annotated[str, typer.Argument(help="Session id.")],
+    action: Annotated[
+        str,
+        typer.Argument(help="test | submit | status | collect"),
+    ] = "test",
+    limit: Annotated[int | None, typer.Option("--limit")] = None,
+) -> None:
+    """Stage 5: label contact sheets (event type, player, stroke) with a vision model.
+
+    `test` runs a few immediately so you can check the prompt; `submit` sends
+    everything through the Batches API at half price, which can take up to an hour.
+    """
+    from .stages import label as stage
+
+    if action == "test":
+        rows = stage.label_sync(session, limit=limit or 8)
+        table = Table(title=f"Sample labels ({stage.MODEL})")
+        for col in ("sheet", "event", "player", "stroke", "conf", "notes"):
+            table.add_column(col)
+        for r in rows:
+            L = r.label
+            table.add_row(
+                r.custom_id, L["event_type"], L["player"], L["stroke"],
+                L["confidence"], L["notes"][:48],
+            )
+        console.print(table)
+
+    elif action == "submit":
+        with console.status("Submitting batches ..."):
+            ids = stage.submit(session, limit=limit)
+        console.print(f"submitted {len(ids)} batch(es):")
+        for i in ids:
+            console.print(f"  {i}")
+        console.print("\nMost batches finish within an hour. Check with:")
+        console.print(f"  tennis label {session} status")
+
+    elif action == "status":
+        rows = stage.status(session)
+        table = Table()
+        for col in ("batch", "status", "done", "errored", "processing"):
+            table.add_column(col)
+        for r in rows:
+            table.add_row(
+                r["id"], r["status"], str(r["succeeded"]),
+                str(r["errored"]), str(r["processing"]),
+            )
+        console.print(table)
+        if all(r["status"] == "ended" for r in rows):
+            console.print(f"\nAll done. Collect with:  tennis label {session} collect")
+
+    elif action == "collect":
+        with console.status("Collecting results ..."):
+            summary = stage.collect(session)
+        console.print(
+            f"{summary['labelled']} labelled, {summary['errors']} errors\n"
+            f"wrote  {summary['path']}"
+        )
+    else:
+        console.print(f"[red]Unknown action {action!r}[/] - use test/submit/status/collect")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def rally(
     session: Annotated[str, typer.Argument(help="Session id.")],
     point: Annotated[int, typer.Argument(help="Point index (see `tennis segment`).")],

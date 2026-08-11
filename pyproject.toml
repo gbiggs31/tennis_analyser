@@ -14,11 +14,12 @@ dependencies = [
     "pillow>=11.0",
     "opencv-python>=4.10",
     "matplotlib>=3.9",
+    "anthropic>=0.69",
 ]
 
 [project.optional-dependencies]
 pose = ["mediapipe>=0.10.14"]
-label = ["anthropic>=0.69"]
+
 ui = ["streamlit>=1.40"]
 
 [project.scripts]

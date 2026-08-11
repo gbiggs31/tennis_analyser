@@ -958,6 +958,7 @@ name = "tennis-analyser"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "opencv-python" },
@@ -970,9 +971,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-label = [
-    { name = "anthropic" },
-]
 pose = [
     { name = "mediapipe" },
 ]
@@ -982,7 +980,7 @@ ui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", marker = "extra == 'label'", specifier = ">=0.69" },
+    { name = "anthropic", specifier = ">=0.69" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "mediapipe", marker = "extra == 'pose'", specifier = ">=0.10.14" },
     { name = "numpy", specifier = ">=2.0" },
@@ -995,7 +993,7 @@ requires-dist = [
     { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.40" },
     { name = "typer", specifier = ">=0.15" },
 ]
-provides-extras = ["pose", "label", "ui"]
+provides-extras = ["pose", "ui"]
 
 [[package]]
 name = "toml"
