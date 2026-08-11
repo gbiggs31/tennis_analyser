@@ -12,6 +12,34 @@ import os
 import re
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_dotenv() -> None:
+    """Read `.env` from the repo root into the environment.
+
+    The Anthropic SDK reads ANTHROPIC_API_KEY from the environment but does not
+    itself look for a .env file, so without this the key is simply absent.
+
+    Existing environment variables win: a value explicitly exported in the shell
+    should not be silently overridden by a stale file.
+    """
+    path = REPO_ROOT / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
 DATA_ROOT = Path(os.environ.get("TENNIS_DATA_ROOT", r"C:\tennis_data"))
 
 RAW_DIR = DATA_ROOT / "raw"

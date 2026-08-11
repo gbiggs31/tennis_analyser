@@ -51,6 +51,25 @@ def doctor() -> None:
     state = "exists" if root.exists() else "will be created on first ingest"
     table.add_row("[green]OK[/]  data root", f"{root}  ({state})")
 
+    # Only the labelling stage needs credentials, so a missing key is a warning
+    # rather than a failure. Never print the key itself - just enough to confirm
+    # the right one was picked up.
+    import os
+
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    env_file = config.REPO_ROOT / ".env"
+    if key:
+        source = ".env" if env_file.exists() else "shell environment"
+        table.add_row(
+            "[green]OK[/]  api key",
+            f"{key[:11]}...{key[-4:]}  ({len(key)} chars, from {source})",
+        )
+    else:
+        table.add_row(
+            "[yellow]--[/]  api key",
+            "not set - only needed for labelling. Copy .env.example to .env.",
+        )
+
     console.print(table)
     if not ok:
         raise typer.Exit(code=1)
