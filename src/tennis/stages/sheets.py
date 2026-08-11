@@ -54,7 +54,12 @@ STRIP_OFFSETS = (-0.33, -0.15, -0.05, 0.0, 0.08, 0.22)
 # Fixed rather than detected: locating the player by background subtraction
 # failed on long sessions (changing light) and then found a person in only 15%
 # of frames once fixed. A constant crop cannot fail.
-STRIP_BOX = (0.06, 0.52, 0.94, 1.00)
+#
+# The top edge was 0.52 until a check across all three sessions caught it
+# decapitating the near player in one of them: same camera angle, but the phone
+# sat closer to the court, so he stands taller in frame. Full width for the same
+# reason - in that session he plays right at the frame edge.
+STRIP_BOX = (0.00, 0.34, 1.00, 1.00)
 
 # Frames used to locate the player. Spread around contact so one bad frame
 # (occlusion, a shadow) cannot decide the crop on its own.
@@ -73,7 +78,7 @@ COURT_TOP = 0.28
 TILE_W = 522
 COURT_TILE_H = 211          # 1920x778 court crop, scaled to width
 STRIP_COLS, STRIP_ROWS = 2, 3
-STRIP_TILE_W, STRIP_TILE_H = 783, 258
+STRIP_TILE_W, STRIP_TILE_H = 783, 291   # matches the 1920x713 strip aspect
 PLAYER_TILE_W, PLAYER_TILE_H = 260, 364
 CROP_ASPECT = PLAYER_TILE_W / PLAYER_TILE_H
 
