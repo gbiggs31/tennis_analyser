@@ -67,8 +67,19 @@ def doctor() -> None:
     else:
         table.add_row(
             "[yellow]--[/]  api key",
-            "not set - only needed for labelling. Copy .env.example to .env.",
+            "not set - only needed for labelling. Put it in .env (not .env.example).",
         )
+
+    # .env.example is tracked; .env is not. Putting a real key in the former is
+    # an easy mistake and would publish it on the next push.
+    example = config.REPO_ROOT / ".env.example"
+    if example.exists() and "sk-ant-api" in example.read_text(encoding="utf-8"):
+        table.add_row(
+            "[bold red]LEAK[/]  .env.example",
+            "contains what looks like a real key. That file is TRACKED BY GIT - "
+            "move the key to .env, restore the template, and rotate the key.",
+        )
+        ok = False
 
     console.print(table)
     if not ok:
