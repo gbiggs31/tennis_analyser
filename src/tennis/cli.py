@@ -392,7 +392,7 @@ def label(
     session: Annotated[str, typer.Argument(help="Session id.")],
     action: Annotated[
         str,
-        typer.Argument(help="test | submit | status | collect"),
+        typer.Argument(help="test | submit | status | collect | restroke"),
     ] = "test",
     limit: Annotated[int | None, typer.Option("--limit")] = None,
 ) -> None:
@@ -439,6 +439,14 @@ def label(
         if all(r["status"] == "ended" for r in rows):
             console.print(f"\nAll done. Collect with:  tennis label {session} collect")
 
+    elif action == "restroke":
+        with console.status(f"Re-classifying strokes with {stage.RESTROKE_MODEL} ..."):
+            r = stage.restroke(session, limit=limit)
+        console.print(
+            f"{r['reviewed']} strikes reviewed, {r['changed']} strokes changed"
+        )
+        console.print(f"wrote  {r['path']}")
+
     elif action == "collect":
         with console.status("Collecting results ..."):
             summary = stage.collect(session)
@@ -447,7 +455,9 @@ def label(
             f"wrote  {summary['path']}"
         )
     else:
-        console.print(f"[red]Unknown action {action!r}[/] - use test/submit/status/collect")
+        console.print(
+            f"[red]Unknown action {action!r}[/] - use test/submit/status/collect/restroke"
+        )
         raise typer.Exit(code=1)
 
 

@@ -233,6 +233,118 @@ def label_sync(session_id: str, limit: int = 8) -> list[Labelled]:
 # --- batch mode ------------------------------------------------------------
 
 
+# --- second pass: stroke only, on confirmed strikes ------------------------
+
+# The first pass calls almost everything a forehand: 212 against 10 backhands
+# across the corpus, which no club player produces. Spot-checking confirmed
+# backhands labelled forehand. Haiku is doing the harder job here - telling
+# forehand from backhand on a player seen from behind, a few hundred pixels
+# tall - and it is not reliable at it.
+#
+# Only ~18% of events are strikes, so re-running just those with a stronger
+# model costs about a pound and fixes the label that matters most.
+RESTROKE_MODEL = "claude-sonnet-5"
+
+RESTROKE_SYSTEM = """\
+You are identifying which tennis stroke was played.
+
+The image is a 2x3 grid of six frames in chronological order, reading left to \
+right then top to bottom, spanning about 0.55 seconds around a ball strike. The \
+frame at impact is labelled CONTACT and outlined in yellow.
+
+The camera is fixed behind the baseline. The NEAR player - largest, closest to \
+the camera - is seen FROM BEHIND, so their right side appears on the RIGHT of \
+the image.
+
+For a right-handed player: a ball met on the right of their body is a FOREHAND, \
+and on the left of their body a BACKHAND. Judge by where the ball meets the \
+racket at CONTACT.
+
+Do not judge from the follow-through. A forehand finishes with the racket swept \
+across to the left shoulder, which looks like a backhand if you only read the \
+final frame. Work out where contact actually happened, then decide.
+
+A ball struck from above head height is a serve (if it begins the point, with a \
+toss) or an overhead/smash. A short punched block near the net is a volley.
+"""
+
+RESTROKE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "stroke": {
+            "type": "string",
+            "enum": [
+                "forehand", "backhand", "serve", "volley",
+                "overhead", "smash", "unclear",
+            ],
+        },
+        "contact_side": {
+            "type": "string",
+            "enum": ["right_of_body", "left_of_body", "overhead", "unclear"],
+            "description": "Where the ball met the racket, from the player's own point of view.",
+        },
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+    "required": ["stroke", "contact_side", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def restroke(session_id: str, limit: int | None = None) -> dict:
+    """Re-classify the stroke of confirmed strikes with a stronger model.
+
+    Runs synchronously: there are only a few hundred, and having the answer now
+    beats halving the price of an already-small bill.
+    """
+    paths = SessionPaths(session_id)
+    dest = paths.root / "labels.json"
+    data = json.loads(dest.read_text(encoding="utf-8"))
+    labels = data["labels"]
+
+    items = {i.custom_id: i for i in _sheet_index(session_id)}
+    targets = [
+        cid for cid, lab in sorted(labels.items())
+        if lab["event_type"] == "strike" and cid in items
+    ]
+    if limit:
+        targets = targets[:limit]
+
+    client = _client()
+    changed = 0
+    for cid in targets:
+        response = client.messages.create(
+            model=RESTROKE_MODEL,
+            max_tokens=300,
+            system=RESTROKE_SYSTEM,
+            output_config={"format": {"type": "json_schema", "schema": RESTROKE_SCHEMA}},
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        _image_block(items[cid].sheet),
+                        {"type": "text", "text": "Which stroke was played?"},
+                    ],
+                }
+            ],
+        )
+        text = next((b.text for b in response.content if b.type == "text"), "{}")
+        result = json.loads(text)
+
+        before = labels[cid]["stroke"]
+        labels[cid]["stroke"] = result["stroke"]
+        labels[cid]["contact_side"] = result["contact_side"]
+        labels[cid]["stroke_confidence"] = result["confidence"]
+        labels[cid]["stroke_model"] = RESTROKE_MODEL
+        # The stroke call now comes from this pass, so surface its confidence as
+        # the one the export filters on.
+        labels[cid]["confidence"] = result["confidence"]
+        changed += before != result["stroke"]
+
+    data["stroke_model"] = RESTROKE_MODEL
+    dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return {"reviewed": len(targets), "changed": changed, "path": str(dest)}
+
+
 def _batch_state_path(session_id: str) -> Path:
     return SessionPaths(session_id).root / "label_batches.json"
 
