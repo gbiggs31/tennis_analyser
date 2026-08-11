@@ -452,6 +452,46 @@ def label(
 
 
 @app.command()
+def shots(
+    session: Annotated[str, typer.Argument(help="Session id.")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be exported, cut nothing.")
+    ] = False,
+    player: Annotated[str, typer.Option("--player", help="near or far.")] = "near",
+    slowmo: Annotated[float, typer.Option("--slowmo")] = 1.0,
+    limit: Annotated[int | None, typer.Option("--limit")] = None,
+) -> None:
+    """Export labelled clips of the player's shots, one folder per stroke."""
+    from .stages import export as stage
+
+    s = stage.summary(session, player=player)
+    table = Table(show_header=False, box=None)
+    table.add_row("labelled events", str(s["events"]))
+    table.add_row(f"{player}-player strikes", str(s["strikes"]))
+    table.add_row("duplicate swings dropped", str(s["duplicates_dropped"]))
+    table.add_row("clips to export", str(s["clips"]))
+    table.add_row("by stroke", "  ".join(f"{k} {v}" for k, v in s["by_stroke"].items()) or "-")
+    table.add_row(
+        "by confidence", "  ".join(f"{k} {v}" for k, v in s["by_confidence"].items()) or "-"
+    )
+    console.print(table)
+
+    if dry_run:
+        console.print("\n[yellow]dry run[/] - nothing cut.")
+        return
+
+    with console.status("Cutting clips ..."):
+        out = stage.export(session, player=player, slowmo=slowmo, limit=limit)
+
+    if not out:
+        console.print("\n[yellow]Nothing to export.[/]")
+        return
+    root = out[0].path.parent.parent
+    console.print(f"\n{len(out)} clips  ->  {root}")
+    console.print(f"index  {root / 'index.csv'}")
+
+
+@app.command()
 def rally(
     session: Annotated[str, typer.Argument(help="Session id.")],
     point: Annotated[int, typer.Argument(help="Point index (see `tennis segment`).")],
