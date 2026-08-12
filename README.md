@@ -161,3 +161,29 @@ uv run python tools/detection_sheet.py <session-id> --near-only
 The fixture is a sanity check, not a target: its noise is synthetic and tuning hard
 against it would overfit. Use it to catch regressions, and the detection sheet
 (and later the review UI) to judge real recordings.
+
+## Results on 26 minutes of footage
+
+| | |
+|---|---|
+| Audio onsets detected | 3,412 |
+| On our court (level split) | 1,538 |
+| Labelled by the vision model | 1,538, zero errors |
+| Identified as the near player's shots | 283 |
+| Clips exported after de-duplication | 225 |
+
+Stroke distribution after the second pass: 74 forehand, 69 backhand, 40 serve,
+11 volley, 1 overhead, with 30 quarantined in `review/`.
+
+**The stroke labels are much better than the first pass, but are not verified
+truth.** The first pass produced 212 forehands to 10 backhands - a ratio no club
+player generates - and re-running the strikes through a stronger model changed
+50-55% of them, giving the near-even split above. That shift is good evidence
+the correction worked. Individual labels are another matter: spot-checking six
+contact frames by eye, only two could be called confidently either way, because
+a forehand's follow-through crosses to the left shoulder and looks like a
+backhand in a still. Treat `review/` as needing eyes, and expect some errors
+outside it.
+
+What is reliable: the clips are real shots, cut at the right moment, at full
+120fps with lead-in and follow-through.
