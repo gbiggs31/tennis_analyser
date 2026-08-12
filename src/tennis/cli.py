@@ -442,9 +442,10 @@ def label(
     elif action == "restroke":
         with console.status(f"Re-classifying strokes with {stage.RESTROKE_MODEL} ..."):
             r = stage.restroke(session, limit=limit)
-        console.print(
-            f"{r['reviewed']} strikes reviewed, {r['changed']} strokes changed"
-        )
+        msg = f"{r['reviewed']} strikes reviewed, {r['changed']} strokes changed"
+        if r.get("failed"):
+            msg += f", [yellow]{r['failed']} unusable[/] ({', '.join(r['failures'])})"
+        console.print(msg)
         console.print(f"wrote  {r['path']}")
 
     elif action == "collect":

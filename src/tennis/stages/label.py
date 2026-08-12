@@ -311,38 +311,56 @@ def restroke(session_id: str, limit: int | None = None) -> dict:
 
     client = _client()
     changed = 0
-    for cid in targets:
-        response = client.messages.create(
-            model=RESTROKE_MODEL,
-            max_tokens=300,
-            system=RESTROKE_SYSTEM,
-            output_config={"format": {"type": "json_schema", "schema": RESTROKE_SCHEMA}},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        _image_block(items[cid].sheet),
-                        {"type": "text", "text": "Which stroke was played?"},
-                    ],
-                }
-            ],
-        )
-        text = next((b.text for b in response.content if b.type == "text"), "{}")
-        result = json.loads(text)
+    failed: list[str] = []
 
-        before = labels[cid]["stroke"]
-        labels[cid]["stroke"] = result["stroke"]
-        labels[cid]["contact_side"] = result["contact_side"]
-        labels[cid]["stroke_confidence"] = result["confidence"]
+    for cid in targets:
+        # One unusable response must not lose the work already done on the other
+        # few hundred. A response can carry no text block at all - a refusal, or
+        # an empty completion - and json.loads("{}") then has no 'stroke'.
+        try:
+            response = client.messages.create(
+                model=RESTROKE_MODEL,
+                max_tokens=300,
+                system=RESTROKE_SYSTEM,
+                output_config={
+                    "format": {"type": "json_schema", "schema": RESTROKE_SCHEMA}
+                },
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            _image_block(items[cid].sheet),
+                            {"type": "text", "text": "Which stroke was played?"},
+                        ],
+                    }
+                ],
+            )
+            text = next((b.text for b in response.content if b.type == "text"), "")
+            result = json.loads(text) if text else {}
+            stroke = result["stroke"]          # KeyError here means unusable
+        except Exception as exc:
+            failed.append(f"{cid}: {type(exc).__name__}")
+            continue
+
+        before = labels[cid].get("stroke")
+        labels[cid]["stroke"] = stroke
+        labels[cid]["contact_side"] = result.get("contact_side", "unclear")
+        labels[cid]["stroke_confidence"] = result.get("confidence", "low")
         labels[cid]["stroke_model"] = RESTROKE_MODEL
         # The stroke call now comes from this pass, so surface its confidence as
         # the one the export filters on.
-        labels[cid]["confidence"] = result["confidence"]
-        changed += before != result["stroke"]
+        labels[cid]["confidence"] = result.get("confidence", "low")
+        changed += before != stroke
 
     data["stroke_model"] = RESTROKE_MODEL
     dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return {"reviewed": len(targets), "changed": changed, "path": str(dest)}
+    return {
+        "reviewed": len(targets),
+        "changed": changed,
+        "failed": len(failed),
+        "failures": failed[:5],
+        "path": str(dest),
+    }
 
 
 def _batch_state_path(session_id: str) -> Path:
