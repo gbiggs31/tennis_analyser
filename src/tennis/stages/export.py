@@ -165,13 +165,18 @@ def export(
         point, shot = entry
 
         stroke = lab["stroke"] if lab["stroke"] != "none" else "unclassified"
+
+        # A shot whose stroke never made it through the second pass still
+        # carries the first pass's answer, and that pass was wrong about half
+        # the time. Treat it as unverified rather than letting it sit
+        # indistinguishable from a checked one.
+        verified_stroke = "stroke_model" in lab
         # Uncertain calls go somewhere separate rather than polluting the
         # stroke folders, so what remains can be trusted at a glance.
-        folder = out_root / (
-            stroke
-            if CONFIDENCE_RANK.get(lab["confidence"], 0) >= floor
-            else f"review/{stroke}"
+        trusted = (
+            CONFIDENCE_RANK.get(lab["confidence"], 0) >= floor and verified_stroke
         )
+        folder = out_root / (stroke if trusted else f"review/{stroke}")
         folder.mkdir(parents=True, exist_ok=True)
 
         name = (
