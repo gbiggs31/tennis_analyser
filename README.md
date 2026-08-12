@@ -30,7 +30,7 @@ tracking model. Pose, motion and vision are layered on top as refinement.
 0  ingest    video.mov ──▶ audio.wav + proxy.mp4 + probe.json
 1  hits      audio.wav ──▶ hits.json      candidate impacts + acoustic features
 2  segment   hits.json ──▶ points.json    serves detected, hits grouped into points
-3  review    Streamlit UI to verify and correct stages 1-2   ** quality gate **
+3  (review UI - not built; validation was done with contact sheets instead)
 4  extract   clips/*.mp4 + sheets/*.jpg   per shot
 5  label     contact sheets ──▶ stroke labels via the Claude Batch API
 6  query     "top 5 forehands", coaching export
@@ -43,10 +43,11 @@ Two design notes worth knowing before reading the code:
 - **Each stage writes an artifact to disk** and reads only the previous stage's output.
   Thresholds get re-tuned many times; re-running stage 2 must never re-decode video.
 
-Player attribution comes free from the camera position: the far player is ~26 m away
-versus ~4 m for the near player, so their strikes arrive about 16 dB quieter and ~64 ms
-later. Combined with the fact that hits alternate within a rally (resolved with Viterbi),
-that is enough to tell whose shot it is.
+Player attribution was expected to come free from the camera position — the far player
+is ~26 m away against ~4 m for the near player, so their strikes should arrive quieter
+and later. **It does not work.** Loudness separates our court from the neighbouring ones
+and nothing finer, and a motion-based fallback scored zero out of five against
+hand-verified shots. Attribution is done by the vision model instead; see below.
 
 ## What the footage told us
 
